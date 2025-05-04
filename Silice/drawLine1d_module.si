@@ -1,0 +1,48 @@
+algorithm draw_line_1d_module(
+  //input   uint1  rst,    // rst
+  input   uint1  start,  // start line drawing
+  input   uint1  oe,     // output enable
+  input   int16  x0,     // point 0
+  input   int16  x1,     // point 1
+  output! int16  x,      // drawing position
+  output! uint1  drawing, // actively drawing
+  output! uint1  busy,    // drawing request in progress
+  output! uint1  done_org     // drawing is complete (high for one tick)
+) <autorun> {
+
+while (1) {// Synchronous rst handling
+    if (reset) {
+        busy = 0;
+        done_org = 0;
+        goto IDLE;  // Immediately go to IDLE on rst
+    }
+    IDLE:
+      done_org = 0;
+      drawing = 0;
+      if (start == 1) {
+        x = x0;
+        busy = 1;
+        goto DRAW;
+      }
+      else 
+      {
+        goto IDLE;
+      }
+    DRAW:
+      drawing = oe;  // Make drawing dependent on oe directly
+      if (oe) {
+        if (x == x1) {
+          busy = 0;
+          done_org = 1;
+
+          goto IDLE;
+        } else {
+          x = x + 1;
+          goto DRAW;
+        }
+      }
+      else {
+          goto DRAW;
+        }
+}
+}

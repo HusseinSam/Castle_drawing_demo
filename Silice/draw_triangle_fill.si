@@ -1,0 +1,196 @@
+$include('drawLine1d_module.si')
+$include('drawLine2d_module.si')
+algorithm draw_triangle_fill(  // signed coordinate width
+  input   uint1  start,  // start line drawing
+  input   uint1  oe,     // output enable
+  input   int16  x0,     // vertex 1
+  input   int16  y0,     // vertex 1
+  input   int16  x1,     // vertex 2
+  input   int16  y1,     // vertex 2
+  input   int16  x2,     // vertex 3
+  input   int16  y2,     // vertex 3
+  output! int16  x_org,      // drawing position
+  output! int16  y,      // drawing position
+  output! uint1  drawing_2, // actively drawing
+  output! uint1  busy_org,   // drawing request in progress
+  output! uint1  done_org     // drawing is complete (high for one tick)
+) <autorun> {
+// sorted input vertices
+int16 x0s=uninitialized; int16 y0s=uninitialized; int16 x1s=uninitialized; int16 y1s=uninitialized; int16 x2s=uninitialized;int16 y2s=uninitialized;
+int16 x0a=uninitialized; int16 y0a=uninitialized; int16 x1a=uninitialized; int16 y1a=uninitialized; int16 xa=uninitialized; int16 ya=uninitialized;
+int16 x0b=uninitialized; int16 y0b=uninitialized; int16 x1b=uninitialized; int16 y1b=uninitialized; int16 xb=uninitialized0;int16 yb=uninitialized;
+int16 x0h=uninitialized; int16 x1h=uninitialized; int16 xh=uninitialized;  int16 prev_y=uninitialized; 
+int16 prev_xa=uninitialized;int16 prev_xb=uninitialized;
+/* line control signals */uint1 oe_a=uninitialized; uint1 oe_b=uninitialized; uint1 oe_h=uninitialized;
+uint1 drawing_h=uninitialized; uint1 busy_a=uninitialized; uint1 busy_b=uninitialized; uint1 busy_h=uninitialized; uint1 b_edge=0;
+// pipeline completion signals to match coordinates
+uint1 busy_p1=uninitialized; uint1 done_p1=uninitialized;
+uint2 curr_state = 0 ;  uint1 state_edge = 0; uint1 state_start_A = 0; uint1 state_start_B= 0; uint1 state_start_H= 0;
+draw_line_module draw_edge_a (
+    start   <: state_start_A,
+    oe <: oe_a,
+    x0 <: x0a,
+    y0 <: y0a,
+    x1 <: x1a,
+    y1 <: y1a,
+    x  :> xa,
+    y  :> ya,
+    /* verilator lint_off PINCONNECTEMPTY */
+    //drawing(),
+    busy  :> busy_a
+    //done()
+    /* verilator lint_on PINCONNECTEMPTY */
+);
+draw_line_module draw_edge_b (
+        start <: state_start_B,
+        oe <: oe_b,
+        x0 <: x0b,
+        y0 <: y0b,
+        x1 <: x1b,
+        y1 <: y1b,
+        x :> xb,
+        y :> yb,
+        /* verilator lint_off PINCONNECTEMPTY */
+        //drawing(),
+        busy :> busy_b
+        //done()
+        /* verilator lint_on PINCONNECTEMPTY */
+);
+draw_line_1d_module draw_h_line (
+        start <: state_start_H,
+        oe <: oe_h,
+        x0 <: x0h,
+        x1 <: x1h,
+        x :> xh,
+        drawing :> drawing_h,
+        busy :> busy_h
+        /* verilator lint_off PINCONNECTEMPTY */
+        //done()
+        /* verilator lint_on PINCONNECTEMPTY */
+);
+uint1 oe_a_next = 0;
+uint1 oe_b_next = 0;
+while(1)
+{   
+    state_start_A := curr_state == 1;
+    state_start_B := curr_state == 2;
+    state_start_H := curr_state == 3;
+    oe_a := (state_edge ==  1 && ya == prev_y);
+    oe_b := (state_edge ==  1 && yb == prev_y);
+    oe_h := oe;
+    x_org :=xh;
+    y := prev_y;
+    drawing_2 := drawing_h;
+    busy_org := busy_p1;
+    done_org := done_p1;
+    if (reset) {
+        busy_p1 = 0;
+        done_p1 = 0;
+        b_edge = 0;
+        goto IDLE;            
+    }
+IDLE:
+    curr_state =0;
+    if (start){
+        done_p1 = 1;
+        goto SORT_0;
+    }
+    else {
+        goto IDLE;
+    }
+SORT_0:
+    if (y0 > y2) {
+        x0s = x2;
+        y0s = y2;
+        x2s = x0;
+        y2s = y0;
+    }
+    else {
+        x0s = x0;
+        y0s = y0;
+        x2s = x2;
+        y2s = y2;
+    }
+    goto SORT_1;
+SORT_1:    
+    if (y0s > y1) {
+        x0s = x1;
+        y0s = y1;
+        x1s = x0s;
+        y1s = y0s;
+    } else{
+        x1s = x1;
+        y1s = y1;
+    }
+    goto SORT_2;
+SORT_2:
+    if (y1s > y2s){
+    x1s = x2s;
+    y1s = y2s;
+    x2s = x1s;
+    y2s = y1s;
+    }
+    goto INIT_A;
+INIT_A:
+    x0a = x0s;
+    y0a = y0s;
+    x1a = x2s;
+    y1a = y2s;
+    prev_xa = x0s;
+    prev_xb = x0s;
+    goto INIT_B0;
+INIT_B0: 
+    b_edge = 0;
+    x0b = x0s;
+    y0b = y0s;
+    x1b = x1s;
+    y1b = y1s;
+    prev_y = y0s;
+    goto START_A;
+INIT_B1: 
+    b_edge = 1;
+    x0b = x1s;
+    y0b = y1s;
+    x1b = x2s;
+    y1b = y2s;
+    prev_y = y1s;
+    goto START_B;  
+START_A: 
+    curr_state =1;
+    goto START_B;
+START_B: 
+    curr_state =2;
+    goto EDGE;
+EDGE:
+    state_edge=1; 
+    if ((ya != prev_y || !busy_a) && (yb != prev_y || !busy_b)) {
+        x0h = (prev_xa > prev_xb) ? prev_xb : prev_xa;  // always draw...
+        x1h = (prev_xa > prev_xb) ? prev_xa : prev_xb;  // left to right
+        state_edge=0;
+        goto START_H;
+    }
+    else{goto EDGE;}
+    START_H: 
+    curr_state =3;
+    goto H_LINE;
+    H_LINE: 
+    if (!busy_h) {
+        prev_y = yb;  // safe to update previous values once h-line done
+        prev_xa = xa;
+        prev_xb = xb;
+        if (!busy_b) {
+            if (busy_a && b_edge == 0) //goto (busy_a && b_edge == 0) ? INIT_B1 : DONE; //// check
+            {
+                goto INIT_B1;
+            }
+            else {goto DONE;}          
+        }
+        else {goto EDGE;}
+    }
+    else{goto H_LINE;}
+DONE:
+    done_p1 = 1;
+    busy_p1 = 0;
+    goto IDLE;
+}
+}

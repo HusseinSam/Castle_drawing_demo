@@ -1,0 +1,68 @@
+algorithm display_480p( //input  wire logic clk_pix,  // pixel clock //input  wire logic rst_pix,  // reset in pixel clock domain
+    output! uint1 hsync,    // horizontal sync
+    output! uint1 vsync,    // vertical sync
+    output! uint1 de,       // data enable (low in blanking interval)
+    output! uint1 frame,    // high at start of frame
+    output! uint1 line,     // high at start of line
+    output! int16 sx,  // horizontal screen position
+    output! int16 sy   // vertical screen position
+) <autorun> {
+    int1 CORDW=16,    // signed coordinate width (bits)
+    uint1 H_RES=640,   // horizontal resolution (pixels)
+    uint1 V_RES=480,   // vertical resolution (lines)
+    uint1 H_FP=16,     // horizontal front porch
+    uint1 H_SYNC=96,   // horizontal sync
+    uint1 H_BP=48,     // horizontal back porch
+    uint1 V_FP=10,     // vertical front porch
+    uint1 V_SYNC=2,    // vertical sync
+    uint1 V_BP=33,     // vertical back porch
+    uint1 H_POL=0,     // horizontal sync polarity (0:neg, 1:pos)
+    uint1 V_POL=0      // vertical sync polarity (0:neg, 1:pos) 
+
+    // horizontal timings
+    int1 H_STA  = 0 - H_FP - H_SYNC - H_BP;    // horizontal start
+    int1 HS_STA = H_STA + H_FP;                // sync start
+    int1 HS_END = HS_STA + H_SYNC;             // sync end
+    int1 HA_STA = 0;                           // active start
+    int1 HA_END = H_RES - 1;                   // active end
+
+    // vertical timings
+    int1 V_STA  = 0 - V_FP - V_SYNC - V_BP;    // vertical start
+    int1 VS_STA = V_STA + V_FP;                // sync start
+    int1 VS_END = VS_STA + V_SYNC;             // sync end
+    int1 VA_STA = 0;                           // active start
+    int1 VA_END = V_RES - 1;                   // active end
+    int16 x;   // screen x position
+    int16 y;  // screen y position
+
+    while(1)
+    {
+        if(reset==1)
+        {
+            hsync = H_POL ? 0 : 1;
+            vsync = V_POL ? 0 : 1;
+            de    = 0;
+            frame = 0;
+            line  = 0;
+            x = H_STA;
+            y = V_STA;
+            sx = H_STA;
+            sy = V_STA;
+        }
+        else{
+            hsync = H_POL ? (x >= HS_STA && x < HS_END) : ~(x >= HS_STA && x < HS_END);
+            vsync = V_POL ? (y >= VS_STA && y < VS_END) : ~(y >= VS_STA && y < VS_END);
+            de    = (y >= VA_STA && x >= HA_STA);
+            frame = (y == V_STA && x == H_STA);
+            line  = (x == H_STA);
+            if (x == HA_END) {    // end of line
+                x = H_STA;
+                y = (y == VA_END) ? V_STA : y + 1;
+            } else {
+                x = x + 1;
+            }
+            sx = x;
+            sy = y;
+        }
+    }
+}

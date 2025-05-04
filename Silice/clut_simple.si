@@ -1,0 +1,29 @@
+
+$include('bram_sdp.si')
+algorithm clut_simple(  // signed coordinate width
+    //input uint1 clk_write,  // write clock
+    //input uint1 clk_read,   // read clock
+    input   uint1 we,         // write enable
+    input   uint4 cidx_write,  // colour index to write
+    input   uint4 cidx_read,   // colour index to read
+    input   uint4 colr_in,     // write colour
+    output! uint12 colr_out     // read colour
+) <autorun> {
+//  parameter COLRW=12,  // colour output width (bits)
+//  parameter CIDXW=4,   // colour index width (bits)
+//  parameter F_PAL=""   // init file for colour palette
+    bram_sdp bram_clut(
+        //WIDTH(COLRW), 12
+        //DEPTH(2**CIDXW), 256
+        //INIT_F(F_PAL) ""
+        //clk_write, clock
+        //clk_read,  clock 
+        we         <: we,
+        addr_write <: cidx_write,
+        addr_read  <: cidx_read,
+        data_in    <: colr_in,
+        data_out   <: colr_out
+    ); 
+
+}
+

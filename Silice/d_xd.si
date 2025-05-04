@@ -1,0 +1,20 @@
+algorithm xd(
+//input  wire logic clk_src,   // source domain clock
+   uint1 clk_dst,   // destination domain clock
+   uint1 flag_src,  // flag in source domain
+   output! uint1 flag_dst   // flag in destination domain
+) autorun {
+// toggle reg when pulse received in source domain
+    uint1 toggle_src = 0;
+    // cross to destination domain via shift reg
+    uint4 shr_dst = 0;
+    flag_dst = (shr_dst >> 3) ^ (shr_dst >> 2); // output pulse when transition occurs
+    while(1)
+    {
+        toggle_src := toggle_src ^ flag_src;
+        shr_dst :=  shr_dst = (shr_dst << 1) | toggle_src;
+    }
+}
+
+
+    

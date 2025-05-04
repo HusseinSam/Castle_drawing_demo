@@ -1,0 +1,32 @@
+ //parameter CORDW=16,  // signed coordinate width (bits)
+ //parameter ADDRW=24   // address width (bits)
+algorithm bitmap_addr(  // signed coordinate width //input  wire logic clk, 
+    input  int16 bmpw,  // bitmap width
+    input  int16 bmph,  // bitmap height
+    input  int16 x,     // horizontal pixel coordinate
+    input  int16 y,     // vertical pixel coordinate
+    input  int16 offx,  // horizontal offset
+    input  int16 offy,  // vertical offset
+    output! uint24 addr,         // pixel memory address
+    output! uint1  clip                      // pixel coordinate outside bitmap
+) <autorun> {
+}
+    int16 addr_y1;
+    int16 addr_x1;
+    int16 addr_x2;
+    uint24 addr_mul;
+    uint1 clip_t1;// clip check temporary
+    while(1)
+    {
+        addr_y1 = y + offy;
+        addr_x1 = x + offx;
+        /* verilator lint_off WIDTH */
+        addr_mul = bmpw * addr_y1;
+        /* verilator lint_on WIDTH */
+        addr_x2  = addr_x1;
+        clip_t1  = (addr_x1 < 0 || addr_x1 > bmpw-1 || addr_y1 < 0 || addr_y1 > bmph-1);
+        clip = clip_t1;
+        /* verilator lint_off WIDTH */
+        addr = addr_mul + addr_x2;
+        /* verilator lint_on WIDTH */
+    }

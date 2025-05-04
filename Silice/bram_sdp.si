@@ -1,0 +1,27 @@
+// simple Dual-port block RAM with separate read and write ports
+dualport_bram uint8 memory<@clk_write, @clk_read>[256];
+algorithm my_dualport_bram(
+    input uint1 clk_write,               // write clock (port a)
+    input uint1 clk_read,                // read clock (port b)
+    input uint1 we,                      // write enable (port a)
+    input uint8 addr_write,  // write address (port a)
+    input uint8 addr_read,   // read address (port b)
+    input uint8 data_in,     // data in (port a)
+    output! uint8 data_out     // data out (port b)
+
+) <autorun> {
+    while (1)
+    {
+        // Port A: Write port (clocked by clk_write)
+        memory.addr0    = addr_write;
+        memory.wdata0   = data_in;
+        memory.wenable0 = we;
+
+        // Port B: Read port (clocked by clk_read)
+        memory.addr1    = addr_read;
+
+        ++; // Wait one clock cycle (both clocks will be triggered in separate domains)
+
+        data_out = memory.rdata1;
+    }
+}

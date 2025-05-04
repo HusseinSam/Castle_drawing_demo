@@ -1,0 +1,271 @@
+$include('display_480p.si')
+$include('bram_sdp.si')
+$include('xd.si')
+$include('render_castle.si')
+$include('bitmap_addr.si')
+$include('linebuffer_simple.si')
+$include('clut_simple.si')
+
+//CORDW=16
+algorithm draw_render(  // signed coordinate width
+// input  wire logic clk_pix,       pixel clock
+//  input  wire logic rst_pix,       sim reset
+  output      int16 sdl_sx,  // horizontal SDL position
+  output      int16 sdl_sy,  // vertical SDL position
+  output      uint1 sdl_de,       // data enable (low in blanking interval)
+  output      uint1 sdl_frame,    // high at start of frame
+  output      uint8 sdl_r,  // 8-bit red
+  output      uint8 sdl_g,  // 8-bit green
+  output      uint8  sdl_b   // 8-bit blue
+
+) <autorun> {
+
+  int1 clk_sys;
+  int1 rst_sys;
+  // display sync signals and coordinates
+  int16 sx = 0;
+  int16 sy = 0;
+  uint1 de = 0;
+  uint1 frame = 0;
+  uint1 line  = 0;
+  // display flags in system clock domain
+  uint1 frame_sys;
+  uint1 line_sys;
+  uint1 line0_sys;
+  uint16 FRAME_WAIT = 200;  // wait this many frames to start drawing
+  uint8 cnt_frame_wait;
+  uint1 draw_oe;  // draw requested
+  uint1 DRAW_SCALE = 1;  // relative to framebuffer dimensions
+  uint1 drawing;  // actively drawing
+  uint1 clip;  // location is clipped
+  int16 drx;
+  int16 dry;  // draw coordinates
+
+    // library resource path
+    const LIB_RES = "../../../lib/res";
+    const PAL_FILE=  LIB_RES + "/palettes/sweetie16_4b.mem";
+    // colour parameters
+
+    int1 CHANW = 4;        // colour channel width (bits)
+    int1 COLRW = 3*CHANW;  // colour width: three channels (bits)
+    int1 CIDXW = 4;        // colour index width (bits)
+    int1 COLR_TRANS = 547;  // transparent colour (matches Sweetie 16 palette)
+    
+    // delay write enable to match address calculation
+    uint2 LAT_ADDR = 3;  // latency (cycles)
+    uint3 fb_we_sr;
+
+    // framebuffer (FB)
+    uint10 FB_WIDTH  = 320;  // framebuffer width in pixels
+    uint8 FB_HEIGHT = 180;  // framebuffer height in pixels
+    uint18 FB_SCALE  =   2;  // framebuffer display scale (1-63)
+    uint18 FB_OFFX   =   0;  // horizontal offset
+    uint18 FB_OFFY   =  60;  // vertical offset
+    uint116 FB_PIXELS = FB_WIDTH * FB_HEIGHT;  // total pixels in buffer
+    uint18 FB_ADDRW  = 16;  // address width (log2[FB_WIDTH * FB_HEIGHT])
+    uint3  FB_DATAW  = 4;  // colour bits per pixel
+
+    // pixel read and write addresses and colours
+    uint16 fb_addr_write;
+    uint16 fb_addr_read;
+    uint4 fb_colr_write;
+    uint4 fb_colr_read;
+    uint1 fb_we;
+
+
+
+    display_480p display_inst (
+        sx <: sx,
+        sy <: sy,
+        /* verilator lint_off PINCONNECTEMPTY */
+        //.hsync(),  not connected
+        //.vsync(),
+        /* verilator lint_on PINCONNECTEMPTY */
+        de    <: de,
+        frame <: frame,
+        line  <: line
+    );
+
+      // framebuffer memory
+    bram_sdp bram_inst (
+        //.clk_write(clk_sys),
+        //.clk_read(clk_sys),
+        we <: fb_we,
+        addr_write <: fb_addr_write,
+        addr_read <: fb_addr_read,
+        data_in <: fb_colr_write,
+        data_out :> fb_colr_read
+    );
+
+    // draw in framebuffer
+    xd xd_frame (
+        flag_src <: frame, 
+        flag_dst :> frame_sys
+    );
+    xd xd_line  (
+        flag_src <: line,
+        flag_dst :> line_sys
+    );
+    xd xd_line0 (
+        flag_src <: (line && sy==FB_OFFY), 
+        flag_dst :> line0_sys
+    );
+      
+    // render shapes
+    render_castle render_instance (
+        oe <: draw_oe,
+        start <: frame_sys,
+        x <: drx,
+        y <: dry,
+        cidx <: fb_colr_write,
+        drawing  :> drawing
+        /* verilator lint_off PINCONNECTEMPTY */
+        //.done()
+        /* verilator lint_on PINCONNECTEMPTY */
+    );
+
+    // calculate pixel address in framebuffer (three-cycle latency)
+    bitmap_addr bitmap_addr_instance (
+        bmpw <: FB_WIDTH,
+        bmph <: FB_HEIGHT,
+        x <: drx,
+        y <: dry,
+        offx <: 0,
+        offy <: 0,
+        addr :> fb_addr_write,
+        clip :> clip
+    );
+
+    // display linebuffer
+    uint4 lb_colr_out;
+
+    linebuffer_simple linebuffer_instance (
+        clk_sys <: clk_sys,
+        clk_pix <: clk_pix,
+        line <: line,
+        line_sys <: line_sys,
+        en_in <: lb_en_in,
+        en_out <: lb_en_out,
+        scale <: FB_SCALE,
+        data_in <: fb_colr_read,
+        data_out <: lb_colr_out
+    );
+
+    // colour lookup table (CLUT)
+    uint12 fb_pix_colr;
+    clut_simple clut_instance (
+        clk_write <: clk_pix,
+        clk_read <: clk_pix,
+        we <: 0,
+        cidx_write <: 0,
+        cidx_read <: lb_colr_out,
+        colr_in <: 0,
+        colr_out <: fb_pix_colr
+    );
+
+    uint1 cnt_lb_line; // count lines for scaling via linebuffer
+    uint1 lb_line = 0;
+    uint1 lb_en_in = 0;
+    uint16 cnt_lbx;  // horizontal pixel counter
+    // enable linebuffer output
+    uint1 lb_en_out;
+    uint2 LAT_LB = 3;  // output latency compensation: lb_en_out+1, LB+1, CLUT+1
+    // background colour (sy ignores 16:9 letterbox)
+    uint12 bg_colr = 0;
+    
+    // paint screen
+    uint1 paint_area;  // area of screen to paint
+    uint12 paint_r = 0;
+    uint12 paint_g = 0;
+    uint12 paint_b = 0;  // colour channels
+    uint1  show_bg = 0;  // where to show background
+
+  while (1)
+ { 
+    clk_sys := clk; // always_comb
+    rst_sys := reset;
+    draw_oe := 0;  // comment out to draw at full speed
+
+    fb_we_sr := {drawing, fb_we_sr[LAT_ADDR-1:1]};
+    if (rst_sys) {fb_we_sr = 0;}
+    fb_we := (fb_we_sr[0] && !clip);
+    if (cnt_frame_wait != FRAME_WAIT-1) {  // wait for initial frames
+        if (frame_sys) {cnt_frame_wait = cnt_frame_wait + 1;}
+    } 
+    else{
+        if (line_sys) {draw_oe = 1;}  // every screen line
+    }
+
+    // read framebuffer for display output via linebuffer
+    if (line0_sys) {cnt_lb_line = 0;}
+    else if (line_sys) {
+        cnt_lb_line = (cnt_lb_line == FB_SCALE-1) ? 0 : cnt_lb_line + 1;
+    }
+
+    // which screen lines need linebuffer?
+    if (line0_sys) { lb_line = 1;}  // enable from sy==0
+    if (frame_sys) {lb_line = 0;}  // disable at frame start
+    // enable linebuffer input
+    lb_en_in := (lb_line && cnt_lb_line == 0 && cnt_lbx < FB_WIDTH);
+    
+    // calculate framebuffer read address for linebuffer
+    if (line_sys) { // reset horizontal counter at start of line
+        cnt_lbx = 0;
+    } 
+    else if (lb_en_in) {  // increment address when LB enabled
+        fb_addr_read = fb_addr_read + 1;
+        cnt_lbx = cnt_lbx + 1;
+    }
+    if (frame_sys) {fb_addr_read = 0;}  // reset address at frame start
+
+    lb_en_out := ((sy >= FB_OFFY) && (sy < (FB_HEIGHT * FB_SCALE) + FB_OFFY)
+        && (sx >= FB_OFFX - LAT_LB) && (sx < (FB_WIDTH * FB_SCALE) + FB_OFFX - LAT_LB));
+
+    if (line)
+    {
+            if      (sy ==   0) {bg_colr = 0x0;}
+            else if (sy ==  60) {bg_colr = 0x239;}
+            else if (sy == 140) {bg_colr = 0x24A;}
+            else if (sy == 195) {bg_colr = 0x25B;}
+            else if (sy == 230) {bg_colr = 0x26C;}
+            else if (sy == 260) {bg_colr = 0x27D;}
+            else if (sy == 285) {bg_colr = 0x29E;}
+            else if (sy == 305) {bg_colr = 0x2BF;}
+            else if (sy == 322) {bg_colr = 0x370;}  // below castle (2x pix)
+            else if (sy == 420) {bg_colr = 0x0;}
+    }
+    paint_area := ((sy >= FB_OFFY) && (sy < (FB_HEIGHT * FB_SCALE) + FB_OFFY)
+            && (sx >= FB_OFFX) && (sx < FB_WIDTH * FB_SCALE + FB_OFFX));
+    if (de && paint_area) {
+    paint_r = fb_pix_colr[11:8];
+    paint_g = fb_pix_colr[7:4];
+    paint_b = fb_pix_colr[3:0];
+    } else {
+    paint_r = 0;
+    paint_g = 0;
+    paint_b = 0;
+    }
+
+    //show_bg := (de && {paint_r, paint_g, paint_b} == COLR_TRANS);
+    show_bg := (de && (
+    (paint_r.4b @ paint_g.4b @ paint_b.4b) == COLR_TRANS.12b));
+    // SDL output (8 bits per colour channel)
+    sdl_sx := sx;
+    sdl_sy := sy;
+    sdl_de := de;
+    sdl_frame := frame;
+    //sdl_r := {2{show_bg ? bg_colr[11:8] : paint_r}};  // double signal width
+    //sdl_g := {2{show_bg ? bg_colr[7:4]  : paint_g}};
+    //sdl_b := {2{show_bg ? bg_colr[3:0]  : paint_b}};
+    sdl_r := (show_bg ? bg_colr[11:8] : paint_r.4b) $ (2);  // 4b → 8b
+    sdl_g := (show_bg ? bg_colr[7:4]  : paint_g.4b) $ (2);
+    sdl_b := (show_bg ? bg_colr[3:0]  : paint_b.4b) $ (2);
+ }
+ 
+}
+
+
+    
+
+   
+   
